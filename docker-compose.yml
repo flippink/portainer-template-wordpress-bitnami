@@ -1,0 +1,78 @@
+version: '3.7'
+services:
+  mariadb:
+    image: mariadb:latest
+    deploy:
+      mode: replicated
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.type == ${nodelabel}
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - flippink.clientid=${clientid}
+    volumes:
+      - /nfs/volumes/${stackid}_mariadb_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${dbpassword}
+      - MYSQL_DATABASE=bitnami_wordpress
+      - MYSQL_USER=bn_wordpress
+      - MYSQL_PASSWORD=${dbpassword}
+    networks:
+      - ${stackid}
+  wordpress:
+    image: bitnami/wordpress:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1024M
+      mode: replicated
+      placement:
+        constraints:
+          - node.role == worker
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - traefik.frontend.passHostHeader=true
+        - traefik.backend.loadbalancer.swarm=false
+        - traefik.backend=${stackid}_wp
+        - traefik.backend.loadbalancer.stickiness=true
+        - traefik.backend.loadbalancer.stickiness.cookieName=flippink-L7-LOADBALANCER
+        - traefik.backend.healthcheck.path=/
+        - traefik.port=80
+        - traefik.frontend.rule=Host:${domain}
+        - traefik.docker.network=traefik
+        - traefik.frontend.entryPoints=http,https
+        - traefik.enable=true
+        - flippink.clientid=${clientid}
+    ports:
+      - 80
+    networks:
+      - ${stackid}
+      - traefik
+    volumes:
+      - /nfs/volumes/${stackid}_wordpress_data:/bitnami
+    depends_on:
+      - mariadb
+    environment:
+      - MARIADB_HOST=${stackid}_mariadb
+      - MARIADB_PORT_NUMBER=3306
+      - WORDPRESS_DATABASE_USER=bn_wordpress
+      - WORDPRESS_DATABASE_NAME=bitnami_wordpress
+      - WORDPRESS_DATABASE_PASSWORD=${dbpassword}
+      - WORDPRESS_USERNAME=flippink
+      - WORDPRESS_PASSWORD=flippink
+
+networks:
+  ${stackid}:
+    driver: overlay
+    attachable: true
+    external: true
+  traefik:
+    driver: overlay
+    attachable: true
+    external: true
